@@ -167,7 +167,7 @@ func negotiate(conn net.Conn, proxyAddr string) (net.Conn, error) {
 		return nil, fmt.Errorf("failed to read DST.PORT: %v", err)
 	}
 
-	rawConn, err := tls.Dial("tcp", "localhost:1443", &tls.Config{
+	rawConn, err := tls.Dial("tcp", proxyAddr, &tls.Config{
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
