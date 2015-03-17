@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -117,6 +118,10 @@ var upgrader = websocket.Upgrader{
 }
 
 func main() {
+	var listenAddr string
+	flag.StringVar(&listenAddr, "listen", ":1443", "the local address to listen on")
+	flag.Parse()
+
 	_, privErr := os.Stat(DefaultPrivFile)
 	_, certErr := os.Stat(DefaultCertFile)
 	if os.IsNotExist(privErr) && os.IsNotExist(certErr) {
@@ -140,7 +145,6 @@ func main() {
 		if host == "" || port == "" {
 			return
 		}
-		log.Printf("Got connection for %s:%s", host, port)
 
 		ws, err := upgrader.Upgrade(w, r, http.Header{
 			"Sec-Websocket-Protocol": {"chat"},
@@ -149,7 +153,6 @@ func main() {
 			log.Printf("Error upgrading connection to websocket: %v", err)
 			return
 		}
-		log.Printf("Upgraded for %s:%s", host, port)
 		conn := ws.UnderlyingConn()
 
 		target, err := net.Dial("tcp", fmt.Sprintf("%s:%s", host, port))
@@ -157,32 +160,27 @@ func main() {
 			conn.Close()
 			return
 		}
-		log.Printf("Connected to %s:%s", host, port)
 
 		wg := sync.WaitGroup{}
 		wg.Add(2)
 		go func() {
-			log.Printf("Writing to %s:%s", host, port)
 			io.Copy(target, conn)
-			log.Printf("Writing to %s:%s finished", host, port)
 			wg.Done()
 		}()
 		go func() {
-			log.Printf("Reading from %s:%s", host, port)
 			io.Copy(conn, target)
-			log.Printf("Reading from %s:%s", host, port)
 			wg.Done()
 		}()
 		wg.Wait()
-		log.Printf("%s:%s finished", host, port)
 	})
 
+	log.Printf("listening on %s", listenAddr)
 	if err := http.ListenAndServeTLS(
-		":1443",
+		listenAddr,
 		DefaultCertFile,
 		DefaultPrivFile,
 		nil,
 	); err != nil {
-		log.Panicf("failed to start server: %v", err)
+		log.Fatalf("failed to start server: %v", err)
 	}
 }
