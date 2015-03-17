@@ -6,15 +6,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 
+	"github.com/beefsack/go-under-cover/bridge"
+	"github.com/beefsack/go-under-cover/llog"
 	"github.com/gorilla/websocket"
 )
 
@@ -42,22 +41,15 @@ var ByteOrder = binary.BigEndian
 
 func handleConn(conn net.Conn, proxyAddr string) error {
 	defer conn.Close()
+	llog.Trace("negotiating for %s", conn.RemoteAddr())
+
 	dstConn, err := negotiate(conn, proxyAddr)
 	if err != nil {
 		return fmt.Errorf("failed to negotiate: %v", err)
 	}
+	defer dstConn.Close()
 
-	wg := sync.WaitGroup{}
-	wg.Add(2)
-	go func() {
-		io.Copy(dstConn, conn)
-		wg.Done()
-	}()
-	go func() {
-		io.Copy(conn, dstConn)
-		wg.Done()
-	}()
-	wg.Wait()
+	bridge.Bridge(conn, dstConn)
 
 	return nil
 }
@@ -171,7 +163,7 @@ func negotiate(conn net.Conn, proxyAddr string) (net.Conn, error) {
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
-		log.Fatalf("failed to connect to server: %v", err)
+		fmt.Errorf("failed to connect to server: %v", err)
 	}
 
 	u, err := url.Parse(fmt.Sprintf("wss://%s/ws", proxyAddr))
@@ -222,29 +214,35 @@ func readVerOctet(conn net.Conn) error {
 }
 
 func main() {
-	var listenAddr string
+	var (
+		listenAddr string
+		logLevel   int
+	)
 	flag.StringVar(&listenAddr, "listen", ":1080", "the local address to listen on")
+	flag.IntVar(&logLevel, "v", llog.LevelInfo, "the level to log, 1-5")
 	flag.Parse()
 	args := flag.Args()
 	if len(args) == 0 {
-		log.Fatalf("you must specify the server address to proxy to")
+		llog.Fatal("you must specify the server address to proxy to")
 	}
+	llog.Default.Level = logLevel
 	proxyAddr := args[0]
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		log.Fatalf("failed to create listener: %v", err)
+		llog.Fatal("failed to create listener: %v", err)
 	}
-	log.Printf("listening on %s", listenAddr)
+	llog.Info("listening on %s", listenAddr)
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("failed to accept connection: %v", err)
+			llog.Warn("failed to accept connection: %v", err)
 		}
 		go func() {
 			addr := conn.RemoteAddr()
+			llog.Debug("connection from %s", addr)
 			if err := handleConn(conn, proxyAddr); err != nil {
-				log.Printf("%s: %v", addr, err)
+				llog.Warn("%s: %v", addr, err)
 			}
 		}()
 	}

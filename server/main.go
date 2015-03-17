@@ -8,15 +8,15 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"math/big"
 	"net"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
+	"github.com/beefsack/go-under-cover/bridge"
+	"github.com/beefsack/go-under-cover/llog"
 	"github.com/gorilla/websocket"
 	"github.com/manveru/faker"
 )
@@ -118,19 +118,24 @@ var upgrader = websocket.Upgrader{
 }
 
 func main() {
-	var listenAddr string
+	var (
+		listenAddr string
+		logLevel   int
+	)
 	flag.StringVar(&listenAddr, "listen", ":1443", "the local address to listen on")
+	flag.IntVar(&logLevel, "v", llog.LevelInfo, "the level to log, 1-5")
 	flag.Parse()
+	llog.Default.Level = logLevel
 
 	_, privErr := os.Stat(DefaultPrivFile)
 	_, certErr := os.Stat(DefaultCertFile)
 	if os.IsNotExist(privErr) && os.IsNotExist(certErr) {
 		priv, err := genKey()
 		if err != nil {
-			log.Fatalf("failed generating private key: %v", err)
+			llog.Fatal("failed generating private key: %v", err)
 		}
 		if err := genCert(priv); err != nil {
-			log.Fatalf("failed generating certificate: %v", err)
+			llog.Fatal("failed generating certificate: %v", err)
 		}
 	}
 
@@ -139,6 +144,7 @@ func main() {
 		w.Write([]byte("fart"))
 	})
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		llog.Debug("WS /ws %s", r.RemoteAddr)
 		values := r.URL.Query()
 		host := values.Get("host")
 		port := values.Get("port")
@@ -149,38 +155,29 @@ func main() {
 		ws, err := upgrader.Upgrade(w, r, http.Header{
 			"Sec-Websocket-Protocol": {"chat"},
 		})
+		defer ws.Close()
 		if err != nil {
-			log.Printf("Error upgrading connection to websocket: %v", err)
+			llog.Warn("failed upgrading connection to websocket: %v", err)
 			return
 		}
 		conn := ws.UnderlyingConn()
 
 		target, err := net.Dial("tcp", fmt.Sprintf("%s:%s", host, port))
 		if err != nil {
-			conn.Close()
 			return
 		}
+		defer target.Close()
 
-		wg := sync.WaitGroup{}
-		wg.Add(2)
-		go func() {
-			io.Copy(target, conn)
-			wg.Done()
-		}()
-		go func() {
-			io.Copy(conn, target)
-			wg.Done()
-		}()
-		wg.Wait()
+		bridge.Bridge(conn, target)
 	})
 
-	log.Printf("listening on %s", listenAddr)
+	llog.Info("listening on %s", listenAddr)
 	if err := http.ListenAndServeTLS(
 		listenAddr,
 		DefaultCertFile,
 		DefaultPrivFile,
 		nil,
 	); err != nil {
-		log.Fatalf("failed to start server: %v", err)
+		llog.Fatal("failed to start server: %v", err)
 	}
 }
