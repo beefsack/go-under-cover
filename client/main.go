@@ -50,7 +50,10 @@ func wsHandler(proxyAddr string) func(
 			return fmt.Errorf("failed to send response header: %v", err)
 		}
 
-		return bridge.Bridge(conn, dstConn)
+		if err := bridge.Bridge(conn, dstConn); err != nil {
+			return fmt.Errorf("failure during connection bridging: %v", err)
+		}
+		return nil
 	}
 }
 
