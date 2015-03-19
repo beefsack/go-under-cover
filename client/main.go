@@ -34,7 +34,7 @@ func wsHandler(proxyAddr string) func(
 			return fmt.Errorf("invalid proxy address: %v", err)
 		}
 		query := url.Values{}
-		query.Set("host", req.DestAddr)
+		query.Set("host", req.DestAddr.String())
 		query.Set("port", strconv.Itoa(int(req.DestPort)))
 		u.RawQuery = query.Encode()
 
@@ -70,7 +70,7 @@ func main() {
 	proxyAddr := args[0]
 
 	llog.Info("listening on %s", listenAddr)
-	if err := socks.Listen(&socks.Socks5{}, listenAddr, wsHandler(proxyAddr)); err != nil {
+	if err := socks.Listen(&socks.Socks45{}, listenAddr, wsHandler(proxyAddr)); err != nil {
 		llog.Fatal("failed to listen: %s", err)
 	}
 }

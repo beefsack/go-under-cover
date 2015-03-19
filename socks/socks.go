@@ -40,21 +40,26 @@ const (
 var ByteOrder = binary.BigEndian
 
 type Request struct {
-	Ver, ConnType, Cmd, AddrType, Frag byte
-	RawDestAddr                        []byte
-	DestAddr                           string
-	DestPort                           uint16
+	Ver, ConnType, Cmd, Frag byte
+	DestAddr                 Addr
+	DestPort                 uint16
+	UserID                   []byte
 }
 
 type Response struct {
-	Reply, AddrType byte
-	BindAddr        []byte
-	BindPort        uint16
+	Reply    byte
+	BindAddr Addr
+	BindPort uint16
 }
 
 type Version interface {
 	Negotiate(conn io.ReadWriter) (*Request, error)
 	SendResponseHeader(conn io.ReadWriter, req *Request, res *Response) error
+}
+
+type readWriter struct {
+	io.Reader
+	io.Writer
 }
 
 type Socks45 struct{}
@@ -63,7 +68,7 @@ func FindVersion(ver byte) (v Version, ok bool) {
 	ok = true
 	switch ver {
 	case VerSocks4:
-		v = &Socks4{}
+		v = &Socks4A{}
 	case VerSocks5:
 		v = &Socks5{}
 	default:
@@ -73,8 +78,9 @@ func FindVersion(ver byte) (v Version, ok bool) {
 }
 
 func (s45 *Socks45) Negotiate(conn io.ReadWriter) (*Request, error) {
-	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
-	v, err := rw.Peek(1)
+	bufR := bufio.NewReader(conn)
+	rw := readWriter{bufR, conn}
+	v, err := bufR.Peek(1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get version byte: %v", err)
 	}
